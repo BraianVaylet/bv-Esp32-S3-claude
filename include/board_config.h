@@ -55,6 +55,9 @@
 #define SND_PA_PIN   7   // amplifier enable, HIGH = on
 
 // ---- Buttons (active LOW) ----
-#define BTN_BOOT 0  // left  — next screen
-#define BTN_PWR  4  // mid   — cycle backlight brightness (long hold = power off)
-#define BTN_USER 5  // right — force refresh
+// Verified on hardware by logging GPIO numbers against physical presses.
+// Clawdmeter's profile has PWR and AUX the other way round; it is wrong for
+// this board. Holding the centre button reports GPIO5.
+#define BTN_BOOT 0  // left   — next screen
+#define BTN_PWR  5  // centre — cycle backlight brightness; hold = power off
+#define BTN_USER 4  // right  — force refresh

@@ -50,6 +50,7 @@ static bool update(Button &b, bool *hold)
 
     if (pressed && b.down && !b.holdFired && now - b.downMs > HOLD_MS) {
         b.holdFired = true;
+        Serial.printf("[btn] GPIO%u hold\n", b.pin);
         if (hold) *hold = true;
         return false;
     }
@@ -57,6 +58,10 @@ static bool update(Button &b, bool *hold)
     if (!pressed && b.down) {
         b.down = false;
         const uint32_t held = now - b.downMs;
+        // Logged for every release, so a button that is wired to a different
+        // GPIO than expected shows up immediately instead of being guessed at.
+        Serial.printf("[btn] GPIO%u released after %lums%s\n", b.pin,
+                      (unsigned long)held, b.holdFired ? " (hold already fired)" : "");
         return !b.holdFired && held > DEBOUNCE_MS;
     }
 
