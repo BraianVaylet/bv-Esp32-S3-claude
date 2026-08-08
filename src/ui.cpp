@@ -381,7 +381,7 @@ static void build_tile_system(lv_obj_t *t)
 
     lv_obj_t *hint = mk_label(t, APP_NAME "  v" APP_VERSION
                                  "\nsettings: open this IP in a browser"
-                                 "\nhold PWR 1s to reset Wi-Fi", F_XS, CC_MUTED);
+                                 "\nhold PWR 1s to power off", F_XS, CC_MUTED);
     lv_obj_set_width(hint, CONTENT_W);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, 0);

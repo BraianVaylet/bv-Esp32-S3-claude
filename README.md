@@ -122,8 +122,17 @@ Arduino demo and Clawdmeter's hardware-tested board profile:
 `BAT_EN` is a power-hold line, not a status pin: it is driven HIGH first thing
 in `board_begin()` or the board browns out the moment you unplug USB.
 
-**Buttons** — left (BOOT) next screen · centre (PWR) cycle brightness, hold 1 s
-to reset Wi-Fi · right (GPIO5) force refresh. Touch swipes between screens too.
+**Buttons** — BOOT next screen · PWR cycle brightness, hold 1 s to power off ·
+GPIO5 force refresh. Touch swipes between screens too.
+
+Sources disagree about which physical button is which GPIO on this board, so
+identify them by behaviour rather than position: tap each one, and the one that
+changes the brightness is PWR.
+
+**Powering off.** Holding PWR drops the `BAT_EN` latch, which on battery cuts
+power outright. On USB it cannot — VBUS feeds the board without passing through
+the latch — so it falls back to deep sleep with the panel and radios off. BOOT
+wakes it either way.
 
 ### Gotchas, learned the hard way
 
@@ -208,9 +217,9 @@ On first boot the device has no credentials, so it raises a setup AP:
 
 The same form stays served at the device's own IP once it is on the LAN, so
 fixing a mistyped token or pointing it at a different bridge is just a browser
-visit — the SYSTEM screen shows the address. Holding the centre button for a
-second wipes the credentials and brings the setup AP back, which is only needed
-when the Wi-Fi itself changes.
+visit — the SYSTEM screen shows the address. A **Forget Wi-Fi** button at the
+bottom of that page wipes the credentials and restarts into the setup AP; it is
+only needed when the network itself changes.
 
 ---
 

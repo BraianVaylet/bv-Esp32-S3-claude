@@ -44,10 +44,14 @@ static void handle_buttons()
             cycle_brightness();
             break;
         case BtnEvent::PwrHold:
-            ui_show_toast("resetting Wi-Fi");
+            // Wi-Fi reset used to live on this gesture, but it is needed once
+            // in the life of the device and powering off is needed daily. The
+            // reset now lives on the settings page, which is always reachable.
+            ui_show_toast("powering off");
             lv_timer_handler();
-            delay(900);
-            net_start_portal();  // clears NVS and reboots into the setup AP
+            delay(800);
+            display_set_brightness(0);
+            board_power_off();
             break;
         default:
             break;
