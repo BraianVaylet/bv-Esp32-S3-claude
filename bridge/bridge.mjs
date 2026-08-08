@@ -26,6 +26,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { Speech, defaultCacheDir, wavInfo, SAMPLE_RATE } from './speech.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -48,6 +49,13 @@ const DEFAULT_CONFIG = {
   // the credentials file strictly read-only (the gauges then stop working
   // whenever the stored access token ages out).
   refreshEnabled: true,
+  // Spoken alerts. The device has a speaker but no usable text-to-speech, so
+  // the phrase is synthesised here with the OS voice and streamed over.
+  speech: {
+    enabled: true,
+    lang: 'en',   // 'en' | 'es'
+    voice: '',    // exact voice name; blank picks the first matching the lang
+  },
 };
 
 // This token gets read off a console and typed by hand into a tiny form on a
@@ -83,6 +91,7 @@ function loadConfig() {
 
 const config = loadConfig();
 const pricing = JSON.parse(fs.readFileSync(path.join(HERE, 'pricing.json'), 'utf8'));
+const speech = new Speech(config.speech, defaultCacheDir(HERE));
 
 // ----------------------------------------------------------- credentials ---
 
@@ -192,6 +201,7 @@ let limitsCache = { at: 0, value: null };
 function readWindowHeaders(headers, windowKey) {
   let utilization = null;
   let reset = null;
+  let status = '';
 
   for (const [rawName, rawValue] of headers.entries()) {
     const name = rawName.toLowerCase();
@@ -201,6 +211,9 @@ function readWindowHeaders(headers, windowKey) {
 
     if (name.endsWith('utilization')) utilization = rawValue;
     else if (name.endsWith('reset')) reset = rawValue;
+    // Anthropic reports per-window status too, so exhaustion never has to be
+    // inferred from a percentage threshold we invented.
+    else if (name.endsWith('status')) status = rawValue;
   }
 
   if (utilization === null) return null;
@@ -213,7 +226,7 @@ function readWindowHeaders(headers, windowKey) {
   if (pct <= 1) pct *= 100;
   pct = Math.max(0, Math.min(100, pct));
 
-  return { pct: Number(pct.toFixed(1)), resetInSec: parseReset(reset) };
+  return { pct: Number(pct.toFixed(1)), resetInSec: parseReset(reset), status };
 }
 
 function readOpusWindow(headers) {
@@ -307,12 +320,104 @@ async function probeLimits() {
       throw new Error(res.ok ? 'no rate-limit headers' : `HTTP ${res.status}`);
     }
     result.ok = true;
+    await evaluateAlerts(result);
   } catch (err) {
     result.error = String(err.message || err).slice(0, 46);
   }
 
   limitsCache = { at: now, value: result };
   return result;
+}
+
+// --------------------------------------------------------------- alerts ----
+//
+// Only two things are worth interrupting someone for: a window running out,
+// and that window coming back. Both are read from Anthropic's own per-window
+// status rather than from a percentage threshold of our invention, with the
+// utilisation as a fallback for the case where the header is absent.
+//
+
+const PHRASES = {
+  en: {
+    session: '5 hour limit',
+    week: 'weekly limit',
+    exhausted: (what, when) => `${what} reached.${when ? ` Resets in ${when}.` : ''}`,
+    recovered: (what) => `${what} has reset. You are good to go.`,
+    dur: (h, m) =>
+      [h ? `${h} hour${h === 1 ? '' : 's'}` : '', m ? `${m} minute${m === 1 ? '' : 's'}` : '']
+        .filter(Boolean)
+        .join(' '),
+  },
+  es: {
+    session: 'el límite de 5 horas',
+    week: 'el límite semanal',
+    exhausted: (what, when) =>
+      `Se agotó ${what}.${when ? ` Se restablece en ${when}.` : ''}`,
+    recovered: (what) => `Se restableció ${what}. Ya podés seguir.`,
+    dur: (h, m) =>
+      [h ? `${h} hora${h === 1 ? '' : 's'}` : '', m ? `${m} minuto${m === 1 ? '' : 's'}` : '']
+        .filter(Boolean)
+        .join(' y '),
+  },
+};
+
+const alertState = {
+  seq: 0,
+  current: null,          // { id, kind, window, text, wavPath }
+  exhausted: { session: null, week: null },
+};
+
+function isExhausted(w) {
+  if (!w) return null;
+  const status = (w.status || '').toLowerCase();
+  if (status === 'rejected') return true;
+  if (status === 'allowed' || status === 'allowed_warning') return w.pct >= 99.5;
+  return w.pct >= 99.5;
+}
+
+function spokenDuration(sec, strings) {
+  if (!sec) return '';
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return strings.dur(h, m);
+}
+
+async function raiseAlert(kind, windowKey, w) {
+  const strings = PHRASES[config.speech.lang] || PHRASES.en;
+  const what = strings[windowKey];
+  const text =
+    kind === 'exhausted'
+      ? strings.exhausted(what, spokenDuration(w?.resetInSec, strings))
+      : strings.recovered(what);
+
+  const alert = { id: ++alertState.seq, kind, window: windowKey, text, wavPath: null };
+  alertState.current = alert;
+  console.log(`[alert] ${kind} ${windowKey}: ${text}`);
+
+  if (config.speech.enabled) {
+    try {
+      alert.wavPath = await speech.synthesize(text);
+    } catch (err) {
+      console.error(`[alert] ${err.message}`);
+    }
+  }
+}
+
+// Called on every successful probe. The first observation only seeds the
+// baseline, so restarting the bridge never fires a spurious alert.
+async function evaluateAlerts(limits) {
+  for (const key of ['session', 'week']) {
+    const w = limits[key];
+    const now = isExhausted(w);
+    if (now === null) continue;
+
+    const before = alertState.exhausted[key];
+    alertState.exhausted[key] = now;
+    if (before === null) continue;
+
+    if (now && !before) await raiseAlert('exhausted', key, w);
+    else if (!now && before) await raiseAlert('recovered', key, w);
+  }
 }
 
 // ------------------------------------------------------- transcript costs ---
@@ -546,6 +651,9 @@ async function buildPayload() {
     cost = { ok: false, error: String(err.message).slice(0, 46) };
   }
 
+  const now = new Date();
+  const a = alertState.current;
+
   return {
     ok: true,
     generatedAt: Math.floor(Date.now() / 1000),
@@ -559,6 +667,13 @@ async function buildPayload() {
       weekOpus: limits.weekOpus,
     },
     cost,
+    // Wall-clock minutes since local midnight. The device has no RTC and no
+    // timezone, so quiet hours are evaluated against this rather than making
+    // the firmware do NTP and DST.
+    clock: { localMinutes: now.getHours() * 60 + now.getMinutes() },
+    alert: a
+      ? { id: a.id, kind: a.kind, window: a.window, text: a.text, hasAudio: !!a.wavPath }
+      : { id: 0, kind: '', window: '', text: '', hasAudio: false },
   };
 }
 
@@ -579,7 +694,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname !== '/usage') {
+  // Raises a synthetic alert so the device speaks on the next poll. Useful for
+  // checking the speaker and the quiet-hours window without waiting to
+  // actually run out of quota.
+  if (url.pathname === '/test-alert') {
+    if (!authorized(req)) return void res.writeHead(401).end('unauthorized');
+    const kind = url.searchParams.get('kind') === 'recovered' ? 'recovered' : 'exhausted';
+    const win = url.searchParams.get('window') === 'week' ? 'week' : 'session';
+    await raiseAlert(kind, win, { resetInSec: 9300 });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, alert: { id: alertState.seq, kind, window: win, text: alertState.current.text } }));
+    return;
+  }
+
+  if (!['/usage', '/alert.pcm', '/speak'].includes(url.pathname)) {
     res.writeHead(404).end('not found');
     return;
   }
@@ -587,6 +715,42 @@ const server = http.createServer(async (req, res) => {
   if (!authorized(req)) {
     res.writeHead(401, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+    return;
+  }
+
+  // Raw signed 16-bit little-endian mono samples, header already stripped.
+  // Parsing RIFF chunks belongs here, where the whole buffer is in hand, not
+  // in the firmware's I2S path — SAPI's 18-byte `fmt ` chunk puts the samples
+  // at offset 46, and a firmware that assumed 44 would play noise.
+  if (url.pathname === '/alert.pcm' || url.pathname === '/speak') {
+    try {
+      let wavPath;
+      if (url.pathname === '/speak') {
+        const text = url.searchParams.get('text');
+        if (!text) return void res.writeHead(400).end('missing text');
+        wavPath = await speech.synthesize(text.slice(0, 300));
+      } else {
+        if (!alertState.current?.wavPath) return void res.writeHead(404).end('no alert audio');
+        wavPath = alertState.current.wavPath;
+      }
+
+      const buf = await fsp.readFile(wavPath);
+      const info = wavInfo(buf);
+      if (!info) return void res.writeHead(500).end('unreadable wav');
+
+      const pcm = buf.subarray(info.dataOffset, info.dataOffset + info.dataSize);
+      res.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-length': pcm.length,
+        'x-sample-rate': String(info.sampleRate),
+        'x-channels': String(info.channels),
+        'x-bits': String(info.bits),
+      });
+      res.end(pcm);
+    } catch (err) {
+      res.writeHead(500, { 'content-type': 'text/plain' });
+      res.end(String(err.message).slice(0, 200));
+    }
     return;
   }
 

@@ -2,6 +2,7 @@
 #include <lvgl.h>
 
 #include "app_config.h"
+#include "audio.h"
 #include "board.h"
 #include "board_config.h"
 #include "display.h"
@@ -60,6 +61,11 @@ void setup()
     // Power latch first: on battery the board browns out without it.
     board_begin();
     settings_load();
+
+    // Before the display: the codec talks over Arduino's Wire on I2C port 0,
+    // which LovyanGFX then claims for the touch controller. audio_begin()
+    // configures the codec and hands the bus back. See audio.h.
+    if (audio_begin()) audio_set_volume(g_settings.volume);
 
     if (!display_begin()) {
         Serial.println("[fatal] display init failed");

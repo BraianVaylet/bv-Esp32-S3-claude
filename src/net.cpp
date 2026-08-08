@@ -51,6 +51,24 @@ static String logo_svg(int size)
     return s;
 }
 
+// Minutes since midnight -> "HH:MM", for <input type=time>.
+static String fmt_hhmm(uint16_t minutes)
+{
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02u:%02u", minutes / 60 % 24, minutes % 60);
+    return String(buf);
+}
+
+static uint16_t parse_hhmm(const String &v, uint16_t fallback)
+{
+    const int colon = v.indexOf(':');
+    if (colon < 1) return fallback;
+    const int h = v.substring(0, colon).toInt();
+    const int m = v.substring(colon + 1).toInt();
+    if (h < 0 || h > 23 || m < 0 || m > 59) return fallback;
+    return (uint16_t)(h * 60 + m);
+}
+
 static void handle_root()
 {
     const int n = WiFi.scanComplete();
@@ -86,6 +104,23 @@ static void handle_root()
     html += "<label>Bridge token</label><input name=token value=\"" +
             g_settings.bridgeToken + "\">";
     html += "<p class=hint>Printed by the bridge on first start.</p>";
+
+    html += "<label>Spoken alerts</label><select name=alerts>";
+    html += String("<option value=1") + (g_settings.alerts ? " selected" : "") + ">On</option>";
+    html += String("<option value=0") + (g_settings.alerts ? "" : " selected") + ">Off</option>";
+    html += "</select>";
+    html += "<p class=hint>Speaks when a limit runs out, and again when it comes back.</p>";
+
+    html += "<div class=row><div><label>Volume</label>"
+            "<input name=vol type=number min=0 max=100 value=\"" +
+            String(g_settings.volume) + "\"></div>";
+    html += "<div><label>Quiet from</label><input name=qs type=time value=\"" +
+            fmt_hhmm(g_settings.quietStart) + "\"></div>";
+    html += "<div><label>until</label><input name=qe type=time value=\"" +
+            fmt_hhmm(g_settings.quietEnd) + "\"></div></div>";
+    html += "<p class=hint>Silent inside this range; the screen still updates. "
+            "Set both the same to never go quiet. Uses the bridge machine's clock.</p>";
+
     html += "<button type=submit>Save &amp; reboot</button></form></div></body></html>";
 
     s_http.send(200, "text/html", html);
@@ -103,6 +138,11 @@ static void handle_save()
     if (s_http.hasArg("port"))  g_settings.bridgePort  = s_http.arg("port").toInt();
     if (s_http.hasArg("poll"))
         g_settings.pollMs = max(5000UL, (unsigned long)s_http.arg("poll").toInt() * 1000UL);
+    if (s_http.hasArg("alerts")) g_settings.alerts = s_http.arg("alerts").toInt() != 0;
+    if (s_http.hasArg("vol"))
+        g_settings.volume = (uint8_t)constrain(s_http.arg("vol").toInt(), 0, 100);
+    if (s_http.hasArg("qs")) g_settings.quietStart = parse_hhmm(s_http.arg("qs"), g_settings.quietStart);
+    if (s_http.hasArg("qe")) g_settings.quietEnd   = parse_hhmm(s_http.arg("qe"), g_settings.quietEnd);
 
     if (!g_settings.bridgePort) g_settings.bridgePort = DEFAULT_BRIDGE_PORT;
     settings_save();
