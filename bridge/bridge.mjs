@@ -50,6 +50,17 @@ const DEFAULT_CONFIG = {
   refreshEnabled: true,
 };
 
+// This token gets read off a console and typed by hand into a tiny form on a
+// phone, so the alphabet drops every glyph pair that gets confused in that
+// round trip: I/L/1, O/0, U/V. base64url would not do.
+const TOKEN_ALPHABET = 'ABCDEFGHJKMNPQRSTWXYZabcdefghjkmnpqrstwxyz23456789';
+
+function generateToken(len = 12) {
+  let out = '';
+  for (let i = 0; i < len; i++) out += TOKEN_ALPHABET[crypto.randomInt(TOKEN_ALPHABET.length)];
+  return out;
+}
+
 function loadConfig() {
   let cfg = { ...DEFAULT_CONFIG };
   if (fs.existsSync(CONFIG_PATH)) {
@@ -60,7 +71,7 @@ function loadConfig() {
     }
   }
   if (!cfg.token) {
-    cfg.token = crypto.randomBytes(9).toString('base64url');
+    cfg.token = generateToken();
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
     console.log(`[config] generated a bridge token and wrote ${CONFIG_PATH}`);
   }

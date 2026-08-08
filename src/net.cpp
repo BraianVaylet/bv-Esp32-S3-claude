@@ -12,6 +12,7 @@ static WebServer  s_http(80);
 static DNSServer  s_dns;
 static uint32_t   s_connectStartedMs = 0;
 static uint32_t   s_lastRetryMs      = 0;
+static bool       s_httpUp           = false;
 
 // ------------------------------------------------------------- setup page ----
 // Same dark Anthropic palette as the device UI so the two feel like one thing.
@@ -92,12 +93,17 @@ static void handle_root()
 
 static void handle_save()
 {
-    g_settings.ssid        = s_http.arg("ssid");
-    g_settings.pass        = s_http.arg("pass");
-    g_settings.bridgeHost  = s_http.arg("host");
-    g_settings.bridgePort  = s_http.arg("port").toInt();
-    g_settings.bridgeToken = s_http.arg("token");
-    g_settings.pollMs      = max(5000UL, (unsigned long)s_http.arg("poll").toInt() * 1000UL);
+    // Only touch fields the request actually carried. A browser always posts
+    // the whole pre-filled form, but a partial POST must not silently wipe the
+    // Wi-Fi password just because that field was left out.
+    if (s_http.hasArg("ssid"))  g_settings.ssid        = s_http.arg("ssid");
+    if (s_http.hasArg("pass"))  g_settings.pass        = s_http.arg("pass");
+    if (s_http.hasArg("host"))  g_settings.bridgeHost  = s_http.arg("host");
+    if (s_http.hasArg("token")) g_settings.bridgeToken = s_http.arg("token");
+    if (s_http.hasArg("port"))  g_settings.bridgePort  = s_http.arg("port").toInt();
+    if (s_http.hasArg("poll"))
+        g_settings.pollMs = max(5000UL, (unsigned long)s_http.arg("poll").toInt() * 1000UL);
+
     if (!g_settings.bridgePort) g_settings.bridgePort = DEFAULT_BRIDGE_PORT;
     settings_save();
 
@@ -109,6 +115,19 @@ static void handle_save()
     ESP.restart();
 }
 
+// The same form is served in both modes. Once the device is on the LAN it
+// stays reachable at its own IP, so fixing a mistyped bridge token does not
+// mean wiping the Wi-Fi credentials and starting over.
+static void start_http()
+{
+    if (s_httpUp) return;
+    s_http.on("/", handle_root);
+    s_http.on("/save", HTTP_POST, handle_save);
+    s_http.onNotFound(handle_root);  // captive-portal catch-all
+    s_http.begin();
+    s_httpUp = true;
+}
+
 static void start_portal()
 {
     s_state = NetState::Portal;
@@ -117,10 +136,7 @@ static void start_portal()
     WiFi.scanNetworks(true /* async */);
 
     s_dns.start(53, "*", WiFi.softAPIP());
-    s_http.on("/", handle_root);
-    s_http.on("/save", HTTP_POST, handle_save);
-    s_http.onNotFound(handle_root);  // captive-portal catch-all
-    s_http.begin();
+    start_http();
 }
 
 // ----------------------------------------------------------------- public ----
@@ -160,6 +176,8 @@ void net_loop()
 
     if (up) {
         s_state = NetState::Online;
+        start_http();           // idempotent; brings the form up on first join
+        s_http.handleClient();
         return;
     }
 
