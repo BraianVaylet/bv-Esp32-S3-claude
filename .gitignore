@@ -1,0 +1,24 @@
+.pio/
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+
+# bridge
+node_modules/
+bridge/config.json
+bridge/.cache.json
+
+# secrets — never commit.
+# The bridge reads Claude Code credentials from ~/.claude and never copies them
+# into the repo, but these rules make that impossible by accident.
+secrets.h
+include/secrets.h
+.credentials.json
+.credentials.json.*
+*.pem
+*.key
+*.log
+
+# local agent settings (also covered by most global ignores, kept here so the
+# protection travels with the repo)
+.claude/settings.local.json
