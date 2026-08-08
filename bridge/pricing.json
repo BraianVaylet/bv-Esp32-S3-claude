@@ -1,0 +1,33 @@
+{
+  "_comment": "USD per million tokens. Keys are matched as substrings of the model id; the longest matching key wins. Edit when Anthropic changes pricing.",
+  "opus": {
+    "input": 15.0,
+    "output": 75.0,
+    "cacheWrite": 18.75,
+    "cacheRead": 1.5
+  },
+  "sonnet": {
+    "input": 3.0,
+    "output": 15.0,
+    "cacheWrite": 3.75,
+    "cacheRead": 0.3
+  },
+  "haiku": {
+    "input": 1.0,
+    "output": 5.0,
+    "cacheWrite": 1.25,
+    "cacheRead": 0.1
+  },
+  "3-5-haiku": {
+    "input": 0.8,
+    "output": 4.0,
+    "cacheWrite": 1.0,
+    "cacheRead": 0.08
+  },
+  "3-haiku": {
+    "input": 0.25,
+    "output": 1.25,
+    "cacheWrite": 0.3,
+    "cacheRead": 0.03
+  }
+}

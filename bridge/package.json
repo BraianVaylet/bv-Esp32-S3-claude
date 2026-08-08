@@ -1,0 +1,14 @@
+{
+  "name": "claude-usage-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local HTTP bridge that exposes Claude plan usage to the ESP32-S3 dashboard",
+  "main": "bridge.mjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bridge.mjs"
+  }
+}
