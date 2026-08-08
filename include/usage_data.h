@@ -50,6 +50,18 @@ struct UsageSnapshot {
     uint64_t  tokCacheRead  = 0;
     uint64_t  tokCacheWrite = 0;
     uint32_t  lastActivitySec = 0;
+
+    // --- alerts ---
+    // The bridge raises one when a window runs out and again when it comes
+    // back, using Anthropic's own per-window status rather than a threshold.
+    uint32_t alertId       = 0;
+    char     alertKind[12] = {0};   // exhausted | recovered
+    char     alertText[72] = {0};
+    bool     alertAudio    = false;
+
+    // Minutes since local midnight on the bridge machine — the device has no
+    // RTC, so quiet hours are judged against this.
+    uint16_t localMinutes = 0;
 };
 
 // Live countdown: the bridge sends seconds-remaining, the device ticks it down

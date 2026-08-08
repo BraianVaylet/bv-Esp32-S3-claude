@@ -1,25 +1,28 @@
 # bv-Esp32-S3-claude
 
 A desk dashboard for your Claude plan usage, running on a **Waveshare
-ESP32-S3-Touch-LCD-1.54**. Four swipeable screens on a 240×240 IPS panel:
-the real 5-hour and weekly limit gauges, spend, tokens by model, and device
-status. Dark only, Anthropic palette, Claude Code starburst drawn on the glass.
+ESP32-S3-Touch-LCD-1.54**. Four swipeable screens on a 240×240 IPS panel: the
+real 5-hour and weekly limit bars, API-equivalent value, tokens by model, and
+device status. Dark only, Anthropic palette, Claude Code's mascot on the glass.
 
 ```
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ ✳ PLAN         ● │  │ ✳ COST         ● │  │ ✳ TOKENS       ● │  │ ✳ SYSTEM       ● │
-│      ╭────╮      │  │ TODAY     MONTH  │  │ INPUT   OUTPUT   │  │ WI-FI    casa    │
-│     ╱  42 ╲%     │  │ $16.58   $146    │  │ 3.1k    99.4k    │  │ IP    10.0.0.42  │
-│    │ 5H WIN │    │  │ $16.58 this ses. │  │ CACHE R CACHE W  │  │ BRIDGE  ok 3s    │
-│     ╲______╱     │  │  ▁ ▃ █ ▁ ▂ ▁ ▅   │  │ 4.1M    152k     │  │ BATTERY 88% USB  │
-│  resets in 3h 4m │  │  Sa Su Mo Tu We  │  │ BY MODEL         │  │ UPTIME  2h 11m   │
-│ ┌──────────────┐ │  │                  │  │ ▓▓▓▓▓ Opus 5     │  │                  │
-│ │WEEKLY    61% │ │  │                  │  │ ▓▓ Sonnet 5      │  │                  │
-│ │████████░░░░░ │ │  │                  │  │                  │  │                  │
-│ └──────────────┘ │  │                  │  │                  │  │                  │
+│ ▟▙ PLAN        ● │  │ ▟▙ API VALUE   ● │  │ ▟▙ TOKENS      ● │  │ ▟▙ SYSTEM      ● │
+│      ▟▀▀▀▙       │  │ TODAY     MONTH  │  │ INPUT   OUTPUT   │  │ WI-FI    casa    │
+│     ▐█ ▀ █▌      │  │ $42.65   $213    │  │ 3.1k    99.4k    │  │ IP    10.0.0.42  │
+│      ▝▘ ▝▘       │  │ $42.65 this ses. │  │ CACHE R CACHE W  │  │ BRIDGE  ok 3s    │
+│  PRO PLAN LIMITS │  │ API LIST PRICES  │  │ 4.1M    152k     │  │ BATTERY 88% USB  │
+│ 5-hour limit 34% │  │ NOT BILLED ON PRO│  │ BY MODEL         │  │ UPTIME  2h 11m   │
+│ ███████░░░░░░░░░ │  │  ▁ ▃ █ ▁ ▂ ▁ ▅   │  │ ▓▓▓▓▓ Opus 5     │  │                  │
+│ resets in 2h 35m │  │  Sa Su Mo Tu We  │  │ ▓▓ Sonnet 5      │  │                  │
+│ Weekly, all  23% │  │                  │  │                  │  │                  │
+│ █████░░░░░░░░░░░ │  │                  │  │                  │  │                  │
 │    ● ○ ○ ○       │  │    ○ ● ○ ○       │  │    ○ ○ ● ○       │  │    ○ ○ ○ ●       │
 └──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
+
+The PLAN screen mirrors the layout of Claude's own usage panel — label,
+percentage, full-width bar, reset countdown — so the two read the same way.
 
 ---
 
@@ -122,6 +125,28 @@ in `board_begin()` or the board browns out the moment you unplug USB.
 **Buttons** — left (BOOT) next screen · centre (PWR) cycle brightness, hold 1 s
 to reset Wi-Fi · right (GPIO5) force refresh. Touch swipes between screens too.
 
+### Gotchas, learned the hard way
+
+Every one of these cost real time during bring-up.
+
+**There is no reset button.** All three buttons are GPIOs. The only reset is
+cutting power — which the battery latch prevents. With a battery attached,
+unplugging USB does *not* power the board down, so holding BOOT and replugging
+never re-reads the boot strap and download mode is unreachable. Disconnect the
+battery first, then hold BOOT while plugging USB in.
+
+**Charge-only USB-C cables look identical to data cables.** The screen lights
+up, the board charges, and nothing ever enumerates. Before suspecting the
+board, plug a phone in with the same cable and confirm it offers file transfer.
+
+**There is no USB-serial bridge chip.** USB comes straight off the ESP32-S3, so
+the port only enumerates when the running firmware brings it up, or from the
+ROM in download mode. A missing COM port is not automatically a dead board.
+
+**`invert = true`, and do not re-judge it from a photograph.** A backlit IPS
+panel renders black as a pale blue-grey to a camera, so a correct dark theme
+photographs as a washed-out negative. Trust the eye in front of the panel.
+
 ---
 
 ## Setup
@@ -181,7 +206,11 @@ On first boot the device has no credentials, so it raises a setup AP:
 3. Pick your Wi-Fi, then enter the host / port / token the bridge printed.
 4. Save. It reboots and connects.
 
-To reconfigure later, hold the centre button for one second.
+The same form stays served at the device's own IP once it is on the LAN, so
+fixing a mistyped token or pointing it at a different bridge is just a browser
+visit — the SYSTEM screen shows the address. Holding the centre button for a
+second wipes the credentials and brings the setup AP back, which is only needed
+when the Wi-Fi itself changes.
 
 ---
 
@@ -200,10 +229,28 @@ instead of a hue shift from green to red:
 | 75–90 % — Book Cloth | `#CC785C` | |
 | Over 90 % — Crail | `#C15F3C` | deepest |
 
-The starburst is **rasterised at runtime** in `src/claude_logo.cpp` rather than
-shipped as a bitmap: each ray is a kite profile, points are folded into one
-canonical sector by symmetry, and 3×3 supersampling gives clean edges. It stays
-sharp at any size and the repo carries no copied brand asset.
+Both marks are **drawn at runtime** in `src/claude_logo.cpp` rather than shipped
+as image files. Claude Code's mascot is a 16×9 grid kept as plain text, so the
+shape is editable at a glance and scales by changing one number:
+
+```
+....##########..
+....##.####.##..
+..##############
+.....#.#..#.#...
+```
+
+The Anthropic starburst is still there as a parametric alternative: each ray is
+a kite profile, points are folded into a single canonical sector by symmetry,
+and 3×3 supersampling gives clean edges at any size.
+
+### About the dollars
+
+The API VALUE screen prices your local transcript tokens at Anthropic's API
+list rates. **On a subscription you are never charged those dollars** — the
+screen says so out loud, naming your plan. It is a volume measure that
+normalises across models, not a bill. Anthropic reports no per-token cost for
+subscription usage anywhere, so nothing here can be a real invoice.
 
 ---
 
@@ -216,7 +263,7 @@ include/theme.h           Anthropic palette + severity ramp
 src/main.cpp              setup/loop, button handling
 src/display.cpp           LovyanGFX ST7789 + CST816 wired into LVGL 9
 src/ui.cpp                4 tiles, header, footer, splash
-src/claude_logo.cpp       procedural starburst rasteriser
+src/claude_logo.cpp       Claude Code mascot grid + starburst rasteriser
 src/usage_client.cpp      FreeRTOS poll task, ArduinoJson parse
 src/net.cpp               Wi-Fi + captive setup portal
 src/board.cpp             power latch, battery ADC, buttons

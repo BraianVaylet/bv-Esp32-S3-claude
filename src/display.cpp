@@ -47,7 +47,12 @@ public:
             c.offset_y         = 0;
             c.offset_rotation  = 0;
             c.readable         = false;
-            c.invert           = true;   // IPS panel
+            // Confirmed on hardware: this IPS panel needs INVON, matching the
+            // ips=true Waveshare passes to Arduino_GFX in its own demo.
+            // Do not "fix" this from photographs — a backlit IPS renders black
+            // as a pale blue-grey to a camera, which reads as a negative image
+            // even when the panel is correct.
+            c.invert           = true;
             c.rgb_order        = false;
             c.dlen_16bit       = false;
             c.bus_shared       = false;

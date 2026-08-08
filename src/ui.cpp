@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ctype.h>
 #include <lvgl.h>
 
 #include "app_config.h"
@@ -22,7 +23,9 @@ static constexpr int CONTENT_W  = W - PAD * 2;                // 224
 static constexpr int CONTENT_H  = TILE_H - PAD * 2;           // 182
 static constexpr int TILE_COUNT = 4;
 
-static const char *TILE_TITLES[TILE_COUNT] = {"PLAN", "COST", "TOKENS", "SYSTEM"};
+// "API VALUE", not "COST": on a subscription these dollars are never billed.
+// See the note rendered on that tile.
+static const char *TILE_TITLES[TILE_COUNT] = {"PLAN", "API VALUE", "TOKENS", "SYSTEM"};
 
 // ------------------------------------------------------------------ state --
 static lv_obj_t *scr_splash  = nullptr;
@@ -37,21 +40,26 @@ static lv_obj_t *dots[TILE_COUNT] = {nullptr};
 static lv_obj_t *toast       = nullptr;
 static uint32_t  toast_until = 0;
 
-// PLAN
-static lv_obj_t *arc_session  = nullptr;
-static lv_obj_t *lbl_sess_pct = nullptr;
-static lv_obj_t *lbl_sess_sym = nullptr;
-static lv_obj_t *lbl_sess_rst = nullptr;
-static lv_obj_t *bar_week     = nullptr;
-static lv_obj_t *lbl_week_pct = nullptr;
-static lv_obj_t *lbl_week_rst = nullptr;
-static lv_obj_t *lbl_plan     = nullptr;
+// PLAN — one row per limit window, laid out like the Claude app's usage panel:
+// name on the left, percentage on the right, a full-width bar underneath, and
+// the reset countdown below that.
+struct LimitRow {
+    lv_obj_t *name  = nullptr;
+    lv_obj_t *pct   = nullptr;
+    lv_obj_t *fill  = nullptr;
+    lv_obj_t *reset = nullptr;
+    int       y     = 0;
+};
+static lv_obj_t *lbl_plan_head = nullptr;
+static LimitRow  row_5h;
+static LimitRow  row_week;
 
 // COST
 static constexpr int CHART_H = 78;
 static lv_obj_t *lbl_today   = nullptr;
 static lv_obj_t *lbl_month   = nullptr;
 static lv_obj_t *lbl_session = nullptr;
+static lv_obj_t *lbl_cost_note = nullptr;
 static lv_obj_t *day_fill[MAX_DAYS]  = {nullptr};
 static lv_obj_t *day_label[MAX_DAYS] = {nullptr};
 
@@ -166,7 +174,7 @@ static void build_splash()
     lv_obj_set_style_bg_color(scr_splash, cc(CC_BG), 0);
     lv_obj_remove_flag(scr_splash, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *logo = claude_logo_create(scr_splash, 104, CC_CLAUDE);
+    lv_obj_t *logo = claude_code_logo_create(scr_splash, 9, CC_CLAUDE);  // 144 x 81
     if (logo) lv_obj_align(logo, LV_ALIGN_CENTER, 0, -26);
 
     lv_obj_t *t = mk_label(scr_splash, APP_NAME, F_XL, CC_TEXT);
@@ -201,14 +209,14 @@ static void build_header()
     lv_obj_t *hdr = mk_box(scr_main, W, HEADER_H, CC_BG, 0);
     lv_obj_set_pos(hdr, 0, 0);
 
-    lv_obj_t *logo = claude_logo_create(hdr, 16, CC_CLAUDE, 8);
+    lv_obj_t *logo = claude_code_logo_create(hdr, 2, CC_CLAUDE);  // 32 x 18
     if (logo) lv_obj_align(logo, LV_ALIGN_LEFT_MID, PAD, 0);
 
     hdr_title = mk_caption(hdr, TILE_TITLES[0]);
     lv_obj_set_style_text_letter_space(hdr_title, 2, 0);
     lv_obj_set_style_text_color(hdr_title, cc(CC_DIM), 0);
     lv_obj_set_style_text_font(hdr_title, F_SM, 0);
-    lv_obj_align(hdr_title, LV_ALIGN_LEFT_MID, PAD + 24, 0);
+    lv_obj_align(hdr_title, LV_ALIGN_LEFT_MID, PAD + 40, 0);
 
     hdr_dot = mk_box(hdr, 8, 8, CC_MUTED, 4);
     lv_obj_align(hdr_dot, LV_ALIGN_RIGHT_MID, -PAD, 0);
@@ -228,57 +236,34 @@ static void build_footer()
 }
 
 // ------------------------------------------------------------ tile: PLAN ---
-// arc 0..112 | reset line 114..129 | weekly panel 130..182
+// logo 4..49 | heading 56..69 | 5h row 78..121 | weekly row 130..173
 
-static constexpr int WEEK_BAR_W = CONTENT_W - 12 - 2;  // panel width - 2*pad - border
+static void build_limit_row(lv_obj_t *t, LimitRow &r, const char *name, int y)
+{
+    r.y    = y;
+    r.name = mk_label(t, name, F_SM, CC_TEXT);
+    lv_obj_align(r.name, LV_ALIGN_TOP_LEFT, 0, y);
+
+    r.pct = mk_label(t, "--", F_SM, CC_TEXT);
+    lv_obj_align(r.pct, LV_ALIGN_TOP_RIGHT, 0, y);
+
+    r.fill = mk_bar(t, CONTENT_W, 8);
+    lv_obj_align(lv_obj_get_parent(r.fill), LV_ALIGN_TOP_LEFT, 0, y + 18);
+
+    r.reset = mk_caption(t, "");
+    lv_obj_align(r.reset, LV_ALIGN_TOP_LEFT, 0, y + 30);
+}
 
 static void build_tile_plan(lv_obj_t *t)
 {
-    arc_session = lv_arc_create(t);
-    lv_obj_set_size(arc_session, 112, 112);
-    lv_obj_align(arc_session, LV_ALIGN_TOP_MID, 0, 0);
-    lv_arc_set_rotation(arc_session, 135);
-    lv_arc_set_bg_angles(arc_session, 0, 270);
-    lv_arc_set_range(arc_session, 0, 100);
-    lv_arc_set_value(arc_session, 0);
-    lv_obj_remove_style(arc_session, NULL, LV_PART_KNOB);
-    lv_obj_remove_flag(arc_session, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(arc_session, 10, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc_session, cc(CC_SURFACE_HI), LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc_session, 10, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc_session, cc(CC_CLAUDE), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_rounded(arc_session, true, LV_PART_INDICATOR);
+    lv_obj_t *logo = claude_code_logo_create(t, 5, CC_CLAUDE);  // 80 x 45
+    if (logo) lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 4);
 
-    // Big number, small percent sign — the number alone always fits the ring.
-    lbl_sess_pct = mk_label(t, "--", F_HERO, CC_TEXT);
-    lv_obj_align_to(lbl_sess_pct, arc_session, LV_ALIGN_CENTER, -7, -6);
+    lbl_plan_head = mk_caption(t, "PLAN LIMITS");
+    lv_obj_align(lbl_plan_head, LV_ALIGN_TOP_MID, 0, 56);
 
-    lbl_sess_sym = mk_label(t, "%", F_LG, CC_DIM);
-    lv_obj_align_to(lbl_sess_sym, lbl_sess_pct, LV_ALIGN_OUT_RIGHT_BOTTOM, 2, -5);
-
-    lv_obj_t *cap = mk_caption(t, "5H WINDOW");
-    lv_obj_align_to(cap, arc_session, LV_ALIGN_CENTER, 0, 22);
-
-    lbl_sess_rst = mk_label(t, "", F_SM, CC_DIM);
-    lv_obj_align(lbl_sess_rst, LV_ALIGN_TOP_MID, 0, 114);
-
-    lv_obj_t *p = mk_panel(t, CONTENT_W, 52, 6);
-    lv_obj_align(p, LV_ALIGN_TOP_MID, 0, 130);
-
-    lv_obj_t *wl = mk_caption(p, "WEEKLY");
-    lv_obj_align(wl, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lbl_week_pct = mk_label(p, "--", F_MD, CC_TEXT);
-    lv_obj_align(lbl_week_pct, LV_ALIGN_TOP_RIGHT, 0, -3);
-
-    bar_week = mk_bar(p, WEEK_BAR_W, 6);
-    lv_obj_align(lv_obj_get_parent(bar_week), LV_ALIGN_TOP_LEFT, 0, 17);
-
-    lbl_week_rst = mk_caption(p, "");
-    lv_obj_align(lbl_week_rst, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-
-    lbl_plan = mk_label(p, "", F_XS, CC_KRAFT);
-    lv_obj_align(lbl_plan, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    build_limit_row(t, row_5h,   "5-hour limit", 78);
+    build_limit_row(t, row_week, "Weekly, all models", 130);
 }
 
 // ------------------------------------------------------------ tile: COST ---
@@ -299,7 +284,13 @@ static void build_tile_cost(lv_obj_t *t)
     lv_obj_align(lbl_month, LV_ALIGN_TOP_RIGHT, 0, 18);
 
     lbl_session = mk_label(t, "", F_SM, CC_DIM);
-    lv_obj_align(lbl_session, LV_ALIGN_TOP_LEFT, 0, 52);
+    lv_obj_align(lbl_session, LV_ALIGN_TOP_LEFT, 0, 50);
+
+    // These are API list prices applied to local transcript token counts. On a
+    // subscription nobody is charged them, so the screen says so rather than
+    // letting the reader assume it is a bill.
+    lbl_cost_note = mk_caption(t, "");
+    lv_obj_align(lbl_cost_note, LV_ALIGN_TOP_LEFT, 0, 67);
 
     lv_obj_t *chart = mk_box(t, CONTENT_W, CHART_H + 16, CC_BG, 0);
     lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
@@ -389,6 +380,7 @@ static void build_tile_system(lv_obj_t *t)
     }
 
     lv_obj_t *hint = mk_label(t, APP_NAME "  v" APP_VERSION
+                                 "\nsettings: open this IP in a browser"
                                  "\nhold PWR 1s to reset Wi-Fi", F_XS, CC_MUTED);
     lv_obj_set_width(hint, CONTENT_W);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
@@ -464,56 +456,53 @@ static void update_splash(const UsageSnapshot &snap)
     }
 }
 
-static void update_plan(const UsageSnapshot &s, uint32_t now)
+static void update_limit_row(LimitRow &r, const Window &w, const char *fallback,
+                             uint32_t fetchedMs, uint32_t now, const char *suffix)
 {
     char buf[48], d[16];
 
-    if (s.session.valid) {
-        const int pct = (int)(s.session.pct + 0.5f);
-        lv_arc_set_value(arc_session, pct);
-        lv_obj_set_style_arc_color(arc_session, cc(cc_level_color(s.session.pct)),
-                                   LV_PART_INDICATOR);
-        snprintf(buf, sizeof(buf), "%d", pct);
-        lv_label_set_text(lbl_sess_pct, buf);
-        lv_obj_set_style_text_color(lbl_sess_pct, cc(CC_TEXT), 0);
-        lv_obj_remove_flag(lbl_sess_sym, LV_OBJ_FLAG_HIDDEN);
+    if (w.valid) {
+        snprintf(buf, sizeof(buf), "%d%%", (int)(w.pct + 0.5f));
+        lv_label_set_text(r.pct, buf);
+        lv_obj_set_style_text_color(r.pct, cc(CC_TEXT), 0);
+        set_bar(r.fill, w.pct, CONTENT_W);
 
-        fmt_dur(d, sizeof(d), window_remaining(s.session, s.fetchedMs, now));
-        snprintf(buf, sizeof(buf), "resets in %s", d);
-        lv_label_set_text(lbl_sess_rst, buf);
+        fmt_dur(d, sizeof(d), window_remaining(w, fetchedMs, now));
+        snprintf(buf, sizeof(buf), "resets in %s%s", d, suffix ? suffix : "");
+        lv_label_set_text(r.reset, buf);
     } else {
-        lv_arc_set_value(arc_session, 0);
-        lv_label_set_text(lbl_sess_pct, "--");
-        lv_obj_set_style_text_color(lbl_sess_pct, cc(CC_MUTED), 0);
-        lv_obj_add_flag(lbl_sess_sym, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(lbl_sess_rst, s.error[0] ? s.error : "no limit data");
+        lv_label_set_text(r.pct, "--");
+        lv_obj_set_style_text_color(r.pct, cc(CC_MUTED), 0);
+        set_bar(r.fill, 0, CONTENT_W);
+        lv_label_set_text(r.reset, fallback ? fallback : "");
     }
-    lv_obj_align_to(lbl_sess_pct, arc_session, LV_ALIGN_CENTER, -7, -6);
-    lv_obj_align_to(lbl_sess_sym, lbl_sess_pct, LV_ALIGN_OUT_RIGHT_BOTTOM, 2, -5);
-    lv_obj_align(lbl_sess_rst, LV_ALIGN_TOP_MID, 0, 114);
+    lv_obj_align(r.pct, LV_ALIGN_TOP_RIGHT, 0, r.y);
+}
 
-    if (s.week.valid) {
-        set_bar(bar_week, s.week.pct, WEEK_BAR_W);
-        snprintf(buf, sizeof(buf), "%d%%", (int)(s.week.pct + 0.5f));
-        lv_label_set_text(lbl_week_pct, buf);
-
-        fmt_dur(d, sizeof(d), window_remaining(s.week, s.fetchedMs, now));
-        snprintf(buf, sizeof(buf), "resets %s", d);
-        lv_label_set_text(lbl_week_rst, buf);
+static void update_plan(const UsageSnapshot &s, uint32_t now)
+{
+    char head[40];
+    if (s.plan[0]) {
+        char plan[20];
+        strncpy(plan, s.plan, sizeof(plan) - 1);
+        plan[sizeof(plan) - 1] = 0;
+        for (char *p = plan; *p; p++) *p = toupper((unsigned char)*p);
+        snprintf(head, sizeof(head), "%s PLAN LIMITS", plan);
     } else {
-        set_bar(bar_week, 0, WEEK_BAR_W);
-        lv_label_set_text(lbl_week_pct, "--");
-        lv_label_set_text(lbl_week_rst, "");
+        snprintf(head, sizeof(head), "PLAN LIMITS");
     }
+    lv_label_set_text(lbl_plan_head, head);
+    lv_obj_align(lbl_plan_head, LV_ALIGN_TOP_MID, 0, 56);
 
-    if (s.weekOpus.valid && s.weekOpus.pct >= 0.5f) {
-        snprintf(buf, sizeof(buf), "opus %d%%", (int)(s.weekOpus.pct + 0.5f));
-        lv_label_set_text(lbl_plan, buf);
-    } else {
-        lv_label_set_text(lbl_plan, s.plan);
-    }
-    lv_obj_align(lbl_week_pct, LV_ALIGN_TOP_RIGHT, 0, -3);
-    lv_obj_align(lbl_plan, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    const char *why = s.error[0] ? s.error : "no limit data";
+    update_limit_row(row_5h, s.session, why, s.fetchedMs, now, nullptr);
+
+    // Max plans report a separate Opus weekly window; Pro does not send one, so
+    // it rides along on the weekly row instead of claiming a row it rarely has.
+    char opus[20] = {0};
+    if (s.weekOpus.valid && s.weekOpus.pct >= 0.5f)
+        snprintf(opus, sizeof(opus), "   opus %d%%", (int)(s.weekOpus.pct + 0.5f));
+    update_limit_row(row_week, s.week, "", s.fetchedMs, now, opus);
 }
 
 static void update_cost(const UsageSnapshot &s)
@@ -531,8 +520,20 @@ static void update_cost(const UsageSnapshot &s)
         fmt_money(m, sizeof(m), s.sessionUsd);
         snprintf(buf, sizeof(buf), "%s this session", m);
         lv_label_set_text(lbl_session, buf);
+
+        if (s.plan[0]) {
+            char plan[20];
+            strncpy(plan, s.plan, sizeof(plan) - 1);
+            plan[sizeof(plan) - 1] = 0;
+            for (char *p = plan; *p; p++) *p = toupper((unsigned char)*p);
+            snprintf(buf, sizeof(buf), "API LIST PRICES - NOT BILLED ON %s", plan);
+        } else {
+            snprintf(buf, sizeof(buf), "API LIST PRICES, NOT AN INVOICE");
+        }
+        lv_label_set_text(lbl_cost_note, buf);
     } else {
         lv_label_set_text(lbl_session, "");
+        lv_label_set_text(lbl_cost_note, "");
     }
 
     float peak = 0.01f;

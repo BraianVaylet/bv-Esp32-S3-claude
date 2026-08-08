@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 
 #include "app_config.h"
+#include "audio.h"
 #include "net.h"
 #include "settings.h"
 #include "usage_client.h"
@@ -76,9 +77,46 @@ static bool parse_payload(const String &body, UsageSnapshot &out)
     out.tokCacheWrite = tok["cacheWrite"] | 0ULL;
 
     out.lastActivitySec = cost["lastActivitySec"] | 0;
-    out.ok              = true;
-    out.error[0]        = 0;
+
+    JsonObjectConst alert = doc["alert"];
+    out.alertId    = alert["id"] | 0;
+    out.alertAudio = alert["hasAudio"] | false;
+    copy_str(out.alertKind, sizeof(out.alertKind), alert["kind"] | "");
+    copy_str(out.alertText, sizeof(out.alertText), alert["text"] | "");
+
+    out.localMinutes = doc["clock"]["localMinutes"] | 0;
+
+    out.ok       = true;
+    out.error[0] = 0;
     return true;
+}
+
+// Streams the alert phrase straight from the bridge into I2S. Nothing is
+// buffered whole: the HTTP body is the audio, already stripped of its WAV
+// header by the bridge, so it can be handed to the codec as it arrives.
+static void play_alert()
+{
+    WiFiClient client;
+    HTTPClient http;
+    http.setTimeout(HTTP_TIMEOUT_MS);
+    http.setConnectTimeout(HTTP_TIMEOUT_MS);
+
+    const String url = "http://" + g_settings.bridgeHost + ":" +
+                       String(g_settings.bridgePort) + "/alert.pcm";
+
+    if (!http.begin(client, url)) return;
+    if (g_settings.bridgeToken.length())
+        http.addHeader("Authorization", "Bearer " + g_settings.bridgeToken);
+
+    const int code = http.GET();
+    const int len  = http.getSize();
+    if (code == 200 && len > 0) {
+        audio_set_volume(g_settings.volume);
+        audio_play_pcm(http.getStream(), (size_t)len);
+    } else {
+        Serial.printf("[alert] audio fetch failed: HTTP %d\n", code);
+    }
+    http.end();
 }
 
 static void poll_once()
@@ -130,6 +168,32 @@ static void poll_once()
         memcpy(s_snap.error, fresh.error, sizeof(s_snap.error));
     }
     xSemaphoreGive(s_lock);
+
+    // Alert ids only ever increase, so the highest one already spoken is all
+    // the state needed. A reboot re-seeds it from the first payload rather
+    // than replaying whatever the bridge is currently holding.
+    static uint32_t spokenId = 0;
+    static bool     seeded   = false;
+
+    if (!fresh.ok) return;
+
+    if (!seeded) {
+        seeded   = true;
+        spokenId = fresh.alertId;
+        return;
+    }
+    if (fresh.alertId <= spokenId) return;
+
+    spokenId = fresh.alertId;
+    Serial.printf("[alert] #%lu %s: %s\n", (unsigned long)fresh.alertId,
+                  fresh.alertKind, fresh.alertText);
+
+    if (!g_settings.alerts) return;
+    if (g_settings.isQuiet(fresh.localMinutes)) {
+        Serial.println("[alert] quiet hours, staying silent");
+        return;
+    }
+    if (fresh.alertAudio) play_alert();
 }
 
 static void poll_task(void *)

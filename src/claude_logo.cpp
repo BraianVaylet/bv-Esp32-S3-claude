@@ -41,6 +41,50 @@ static uint8_t coverage(int x, int y, float half, float step)
     return static_cast<uint8_t>((hits * 255) / (SS * SS));
 }
 
+// Claude Code's mascot on a 16x9 grid: body with two eye notches, side tabs,
+// four legs. '#' is a filled cell, '.' is transparent. Kept as text so the
+// shape stays editable at a glance.
+static const char *CLAWD[CLAWD_ROWS] = {
+    "....##########..",
+    "....##########..",
+    "....##.####.##..",
+    "....##.####.##..",
+    "..##############",
+    "..##############",
+    "....##########..",
+    ".....#.#..#.#...",
+    ".....#.#..#.#...",
+};
+
+lv_obj_t *claude_code_logo_create(lv_obj_t *parent, int block, uint32_t color)
+{
+    if (block < 1) block = 1;
+    const int w = CLAWD_COLS * block;
+    const int h = CLAWD_ROWS * block;
+
+    const size_t bytes = static_cast<size_t>(w) * h * 4 + 64;
+    void *buf = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+    if (!buf) buf = heap_caps_malloc(bytes, MALLOC_CAP_DEFAULT);
+    if (!buf) return nullptr;
+    memset(buf, 0, bytes);
+
+    lv_obj_t *canvas = lv_canvas_create(parent);
+    lv_canvas_set_buffer(canvas, buf, w, h, LV_COLOR_FORMAT_ARGB8888);
+
+    const lv_color_t col = lv_color_hex(color);
+    for (int row = 0; row < CLAWD_ROWS; row++) {
+        for (int cellX = 0; cellX < CLAWD_COLS; cellX++) {
+            if (CLAWD[row][cellX] != '#') continue;
+            for (int dy = 0; dy < block; dy++)
+                for (int dx = 0; dx < block; dx++)
+                    lv_canvas_set_px(canvas, cellX * block + dx, row * block + dy, col, LV_OPA_COVER);
+        }
+    }
+
+    lv_obj_set_size(canvas, w, h);
+    return canvas;
+}
+
 lv_obj_t *claude_logo_create(lv_obj_t *parent, int size, uint32_t color, int rays)
 {
     if (rays <= 0) rays = (size < 40) ? 8 : 12;

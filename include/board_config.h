@@ -44,6 +44,16 @@
 #define BAT_FULL_MV       4200.0f
 #define BAT_EMPTY_MV      3300.0f
 
+// ---- Audio: ES8311 codec -> NS4150B amplifier -> speaker ----
+// Same values in Waveshare's 01_i2s_audio example and Clawdmeter's board
+// profile. The codec sits on the shared I2C bus at 0x18; the amplifier enable
+// is a plain GPIO, which is what lets us mute without touching I2C.
+#define SND_I2S_MCLK 8
+#define SND_I2S_BCLK 9
+#define SND_I2S_WS   10  // LRCK
+#define SND_I2S_DOUT 12  // ESP -> codec
+#define SND_PA_PIN   7   // amplifier enable, HIGH = on
+
 // ---- Buttons (active LOW) ----
 #define BTN_BOOT 0  // left  — next screen
 #define BTN_PWR  4  // mid   — cycle backlight brightness (long hold = power off)

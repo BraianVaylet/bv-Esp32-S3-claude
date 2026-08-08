@@ -22,3 +22,6 @@ include/secrets.h
 # local agent settings (also covered by most global ignores, kept here so the
 # protection travels with the repo)
 .claude/settings.local.json
+
+# tts cache
+bridge/.cache/
