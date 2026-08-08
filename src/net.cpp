@@ -34,6 +34,9 @@ input:focus,select:focus{outline:none;border-color:#D97757}
 button{width:100%;margin-top:24px;padding:13px;background:#D97757;color:#191919;
       border:0;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
 button:hover{background:#CC785C}
+button.danger{background:transparent;color:#C15F3C;border:1px solid #40403E;
+      margin-top:12px;font-weight:500}
+button.danger:hover{background:#262625;border-color:#C15F3C}
 .row{display:flex;gap:12px}.row>div{flex:1}
 .hint{color:#666663;font-size:12px;margin-top:6px}
 )CSS";
@@ -49,6 +52,28 @@ static String logo_svg(int size)
     }
     s += "<circle r=\"5\"/></svg>";
     return s;
+}
+
+// Escapes a value before it goes into an HTML attribute. Without this a Wi-Fi
+// password containing a quote or an ampersand ends the attribute early: the
+// form still renders, but re-saving it silently stores a truncated password
+// and the device then fails the WPA handshake forever.
+static String esc(const String &in)
+{
+    String out;
+    out.reserve(in.length() + 12);
+    for (size_t i = 0; i < in.length(); i++) {
+        const char c = in[i];
+        switch (c) {
+            case '&':  out += "&amp;";  break;
+            case '<':  out += "&lt;";   break;
+            case '>':  out += "&gt;";   break;
+            case '"':  out += "&quot;"; break;
+            case '\'': out += "&#39;";  break;
+            default:   out += c;        break;
+        }
+    }
+    return out;
 }
 
 // Minutes since midnight -> "HH:MM", for <input type=time>.
@@ -76,8 +101,8 @@ static void handle_root()
     for (int i = 0; i < n; i++) {
         const String ssid = WiFi.SSID(i);
         if (!ssid.length()) continue;
-        opts += "<option value=\"" + ssid + "\"" +
-                (ssid == g_settings.ssid ? " selected" : "") + ">" + ssid +
+        opts += "<option value=\"" + esc(ssid) + "\"" +
+                (ssid == g_settings.ssid ? " selected" : "") + ">" + esc(ssid) +
                 " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
     }
 
@@ -93,16 +118,16 @@ static void handle_root()
     html += "<form method=POST action=/save>";
     html += "<label>Wi-Fi network</label><select name=ssid>" + opts + "</select>";
     html += "<label>Password</label><input name=pass type=password value=\"" +
-            g_settings.pass + "\">";
+            esc(g_settings.pass) + "\">";
     html += "<label>Bridge host</label><input name=host placeholder=\"192.168.1.20\" value=\"" +
-            g_settings.bridgeHost + "\">";
+            esc(g_settings.bridgeHost) + "\">";
     html += "<p class=hint>IP of the PC running <code>bridge/bridge.mjs</code>.</p>";
     html += "<div class=row><div><label>Port</label><input name=port type=number value=\"" +
             String(g_settings.bridgePort) + "\"></div>";
     html += "<div><label>Poll (s)</label><input name=poll type=number value=\"" +
             String(g_settings.pollMs / 1000) + "\"></div></div>";
     html += "<label>Bridge token</label><input name=token value=\"" +
-            g_settings.bridgeToken + "\">";
+            esc(g_settings.bridgeToken) + "\">";
     html += "<p class=hint>Printed by the bridge on first start.</p>";
 
     html += "<label>Spoken alerts</label><select name=alerts>";
@@ -121,9 +146,32 @@ static void handle_root()
     html += "<p class=hint>Silent inside this range; the screen still updates. "
             "Set both the same to never go quiet. Uses the bridge machine's clock.</p>";
 
-    html += "<button type=submit>Save &amp; reboot</button></form></div></body></html>";
+    html += "<button type=submit>Save &amp; reboot</button></form>";
+
+    // Wiping the credentials is a separate, deliberate action — not something
+    // that should ride along with an ordinary save.
+    html += "<form method=POST action=/forget "
+            "onsubmit=\"return confirm('Forget Wi-Fi and restart into setup mode?')\">"
+            "<button type=submit class=danger>Forget Wi-Fi</button></form>";
+    html += "<p class=hint>Restarts into the <b>" AP_SSID "</b> access point. "
+            "Only needed when the network itself changes.</p>";
+
+    html += "</div></body></html>";
 
     s_http.send(200, "text/html", html);
+}
+
+static void handle_forget()
+{
+    s_http.send(200, "text/html",
+                "<meta charset=utf-8><body style='background:#191919;color:#FAFAF7;"
+                "font-family:sans-serif;padding:40px;text-align:center'>"
+                "<h2 style='color:#D97757'>Wi-Fi forgotten</h2>"
+                "<p>Restarting into <b>" AP_SSID "</b>.</p></body>");
+    delay(600);
+    settings_clear();
+    delay(100);
+    ESP.restart();
 }
 
 static void handle_save()
@@ -163,6 +211,7 @@ static void start_http()
     if (s_httpUp) return;
     s_http.on("/", handle_root);
     s_http.on("/save", HTTP_POST, handle_save);
+    s_http.on("/forget", HTTP_POST, handle_forget);
     s_http.onNotFound(handle_root);  // captive-portal catch-all
     s_http.begin();
     s_httpUp = true;
@@ -190,6 +239,11 @@ void net_begin()
         start_portal();
         return;
     }
+
+    // Length only, never the secret: enough to spot an empty or truncated
+    // password, which is otherwise indistinguishable from a wrong one.
+    Serial.printf("[net] connecting to \"%s\" (password %u chars)\n",
+                  g_settings.ssid.c_str(), (unsigned)g_settings.pass.length());
 
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
@@ -219,6 +273,16 @@ void net_loop()
         start_http();           // idempotent; brings the form up on first join
         s_http.handleClient();
         return;
+    }
+
+    // A link that drops after being up has to re-arm the retry cycle. Without
+    // this the state stays Online, no branch below matches, WiFi.begin() is
+    // never reissued, and the device sits there forever showing a network it
+    // is no longer on — waiting on an auto-reconnect that has already given up.
+    if (s_state == NetState::Online) {
+        s_state       = NetState::Failed;
+        s_lastRetryMs = millis();
+        Serial.println("[net] link lost, retrying");
     }
 
     if (s_state == NetState::Connecting && millis() - s_connectStartedMs > 20000) {

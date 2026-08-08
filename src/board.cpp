@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <driver/rtc_io.h>
+#include <esp_sleep.h>
 
 #include "board.h"
 #include "board_config.h"
@@ -96,3 +98,30 @@ uint8_t board_battery_pct()
 // No PMU on this board, so "on USB" is inferred: the charger holds the pack
 // above the li-ion ceiling while plugged in.
 bool board_on_usb() { return board_battery_mv() > 4250; }
+
+void board_power_off()
+{
+    // Silence the amplifier first, or the rail collapsing puts a pop through
+    // the speaker.
+    pinMode(SND_PA_PIN, OUTPUT);
+    digitalWrite(SND_PA_PIN, LOW);
+
+    Serial.println("[power] shutting down");
+    Serial.flush();
+
+    // On battery this is the end of the line: the latch is the only thing
+    // keeping the rail up.
+    digitalWrite(BAT_EN, LOW);
+    delay(150);
+
+    // Still running means USB is supplying VBUS and the latch cannot win.
+    // Deep sleep is the closest thing to off, woken by BOOT going low. The
+    // pull-up has to be held through sleep or the pad floats and the board
+    // wakes on noise.
+    rtc_gpio_pullup_en((gpio_num_t)BTN_BOOT);
+    rtc_gpio_pulldown_dis((gpio_num_t)BTN_BOOT);
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_BOOT, 0);
+    esp_deep_sleep_start();
+
+    while (true) {}  // unreachable; keeps the noreturn contract honest
+}
