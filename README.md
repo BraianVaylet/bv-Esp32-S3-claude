@@ -180,6 +180,12 @@ answering on the other end. To avoid that entirely, register it at logon:
 powershell -ExecutionPolicy Bypass -File bridge/install-windows-task.ps1
 ```
 
+That prefers a scheduled task, which can restart the bridge if it dies.
+Registering one needs elevation on many machines, so when it is refused the
+script falls back to a shortcut in the Startup folder — no admin rights, same
+"runs at logon" result, minus the automatic restart. Either is undone with
+`-Remove`.
+
 First run writes `bridge/config.json` with a generated token and prints
 everything the device needs:
 
