@@ -771,6 +771,17 @@ const runDirectly =
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (runDirectly) {
+  // The overwhelmingly common failure is starting a second copy. Say so in one
+  // line instead of dumping an unhandled-error stack trace.
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`port ${config.port} is already in use.`);
+      console.error('The bridge is probably already running, in another window or as a scheduled task.');
+      process.exit(1);
+    }
+    throw err;
+  });
+
   server.listen(config.port, config.host, () => {
     const nets = Object.values(os.networkInterfaces()).flat();
     const lan = nets.find((n) => n && n.family === 'IPv4' && !n.internal);

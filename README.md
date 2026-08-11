@@ -168,6 +168,18 @@ Needs Node 18+. No dependencies to install.
 node bridge/bridge.mjs
 ```
 
+On Windows, `bridge/start-bridge.cmd` does the same from a double click and
+keeps the window open if it exits, so a crash or a port clash stays readable.
+
+**The device only shows data while the bridge is running.** A bridge started by
+hand dies with its terminal and does not survive a reboot; the device then
+reports `bridge unreachable` — which means the network is fine and nothing is
+answering on the other end. To avoid that entirely, register it at logon:
+
+```bash
+powershell -ExecutionPolicy Bypass -File bridge/install-windows-task.ps1
+```
+
 First run writes `bridge/config.json` with a generated token and prints
 everything the device needs:
 
@@ -179,12 +191,6 @@ everything the device needs:
 ```
 
 `bridge/config.json` holds that token and is gitignored.
-
-To start it automatically at every logon on Windows:
-
-```bash
-powershell -ExecutionPolicy Bypass -File bridge/install-windows-task.ps1
-```
 
 `bridge/config.json` options: `port`, `host`, `token`, `limitsEnabled`,
 `limitsCacheSec`, `probeModel`, `credentialsPath`, `refreshEnabled`. Env
