@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <lvgl.h>
 
 #include "app_config.h"
 #include "board_config.h"
@@ -203,6 +204,70 @@ static void handle_save()
     ESP.restart();
 }
 
+// Renders whatever is currently on the panel into an off-screen buffer via
+// LVGL's snapshot API and streams it out as an uncompressed 24-bit BMP — the
+// one image format that needs no encoder, just a 54-byte header. The panel
+// is always exactly LCD_WIDTH x LCD_HEIGHT, so no padding math is needed: BMP
+// rows must be a multiple of 4 bytes and width*3 already is, at this size.
+//
+// Runs on the same core and the same cooperative loop() as lv_timer_handler(),
+// so there is no concurrent access to LVGL to guard against — this blocks
+// that loop for the ~150 KB write, same as any other synchronous HTTP
+// handler here, which briefly pauses input and the usage poll rendering.
+static void write_u16(uint8_t *p, uint16_t v) { p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; }
+static void write_u32(uint8_t *p, uint32_t v)
+{
+    p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF;
+}
+
+static void handle_screenshot()
+{
+    lv_obj_t *scr = lv_screen_active();
+    lv_draw_buf_t *snap = lv_snapshot_take(scr, LV_COLOR_FORMAT_RGB565);
+    if (!snap) {
+        s_http.send(500, "text/plain", "snapshot failed");
+        return;
+    }
+
+    const uint32_t w      = snap->header.w;
+    const uint32_t h      = snap->header.h;
+    const uint32_t stride = snap->header.stride;
+    const uint32_t rowBytes  = w * 3;
+    const uint32_t pixelSize = rowBytes * h;
+    const uint32_t fileSize  = 54 + pixelSize;
+
+    uint8_t header[54] = {0};
+    header[0] = 'B'; header[1] = 'M';
+    write_u32(&header[2],  fileSize);
+    write_u32(&header[10], 54);            // pixel data offset
+    write_u32(&header[14], 40);            // DIB header size (BITMAPINFOHEADER)
+    write_u32(&header[18], w);
+    write_u32(&header[22], h);             // positive height = bottom-up rows
+    write_u16(&header[26], 1);             // colour planes
+    write_u16(&header[28], 24);            // bits per pixel
+    write_u32(&header[34], pixelSize);
+
+    WiFiClient client = s_http.client();
+    s_http.setContentLength(fileSize);
+    s_http.send(200, "image/bmp", "");
+    client.write(header, sizeof(header));
+
+    // BMP stores rows bottom-to-top; the snapshot is top-to-bottom.
+    uint8_t row[LCD_WIDTH * 3];
+    for (int32_t y = (int32_t)h - 1; y >= 0; y--) {
+        const uint16_t *src = (const uint16_t *)(snap->data + (uint32_t)y * stride);
+        for (uint32_t x = 0; x < w; x++) {
+            const uint16_t px = src[x];
+            row[x * 3 + 0] = (uint8_t)(((px & 0x1F) * 255) / 31);          // B
+            row[x * 3 + 1] = (uint8_t)((((px >> 5) & 0x3F) * 255) / 63);   // G
+            row[x * 3 + 2] = (uint8_t)((((px >> 11) & 0x1F) * 255) / 31);  // R
+        }
+        client.write(row, rowBytes);
+    }
+
+    lv_draw_buf_destroy(snap);
+}
+
 // The same form is served in both modes. Once the device is on the LAN it
 // stays reachable at its own IP, so fixing a mistyped bridge token does not
 // mean wiping the Wi-Fi credentials and starting over.
@@ -212,6 +277,7 @@ static void start_http()
     s_http.on("/", handle_root);
     s_http.on("/save", HTTP_POST, handle_save);
     s_http.on("/forget", HTTP_POST, handle_forget);
+    s_http.on("/screenshot.bmp", handle_screenshot);
     s_http.onNotFound(handle_root);  // captive-portal catch-all
     s_http.begin();
     s_httpUp = true;
