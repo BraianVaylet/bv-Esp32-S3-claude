@@ -227,6 +227,32 @@ visit — the SYSTEM screen shows the address. A **Forget Wi-Fi** button at the
 bottom of that page wipes the credentials and restarts into the setup AP; it is
 only needed when the network itself changes.
 
+### Screenshots
+
+```
+http://<device-ip>/screenshot.bmp
+```
+
+Renders whatever is currently on the panel — LVGL's own snapshot API, not a
+camera — and streams it back as an uncompressed 24-bit BMP. No app needed:
+paste the URL into a browser, or fetch it from a script:
+
+```bash
+curl -o screen.bmp http://192.168.1.20/screenshot.bmp
+```
+
+Uncompressed and 24-bit is a deliberate choice, not an oversight: PNG needs a
+deflate encoder, which is more flash and more RAM than this device has to
+spare for something used occasionally. A 240x240 frame is ~170 KB either way,
+which a phone or a `curl` script does not notice.
+
+It shares the settings page's HTTP server and its trust model — reachable to
+anyone on the LAN, no login — which matches everything else already on that
+port. Rendering blocks the same cooperative loop as the rest of the UI for
+about as long as the transfer takes, so buttons and the usage poll pause for a
+moment during a capture; harmless for something you reach for occasionally,
+noticeable if you tried to poll it continuously.
+
 ---
 
 ## Design
