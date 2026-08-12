@@ -164,21 +164,62 @@ photographs as a washed-out negative. Trust the eye in front of the panel.
 
 Needs Node 18+. No dependencies to install.
 
+**The device only shows data while the bridge is running.** It has no storage
+and no clock of its own — every number on the screen came from the bridge
+seconds earlier. When the bridge is not running the device reports
+`bridge unreachable`, which means the network is fine and nothing is answering
+on the other end. The fix is always on the PC, never on the device.
+
+#### Ways to run it
+
+| | Survives a reboot | Needs admin | Restarts if it crashes |
+| --- | --- | --- | --- |
+| Terminal | no | no | no |
+| Double click | no | no | no |
+| At logon | **yes** | only for the task variant | task variant only |
+
+**Terminal** — for a quick run, or when you want to watch the log:
+
 ```bash
 node bridge/bridge.mjs
 ```
 
-On Windows, `bridge/start-bridge.cmd` does the same from a double click and
-keeps the window open if it exits, so a crash or a port clash stays readable.
+`npm start` from `bridge/` does the same. Add `BRIDGE_DEBUG=1` to see the probe
+status and which rate-limit headers came back.
 
-**The device only shows data while the bridge is running.** A bridge started by
-hand dies with its terminal and does not survive a reboot; the device then
-reports `bridge unreachable` — which means the network is fine and nothing is
-answering on the other end. To avoid that entirely, register it at logon:
+**Double click** — `bridge/start-bridge.cmd`, on Windows. No terminal, no `cd`.
+It checks for `node` up front, and keeps the window open if the process exits
+so a crash or a port clash stays readable instead of a console that vanishes.
+
+**At logon** — the one that means you stop thinking about this:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File bridge/install-windows-task.ps1
 ```
+
+It prefers a scheduled task, which can restart the bridge if it dies.
+Registering one needs elevation on many machines, so when that is refused it
+falls back to a shortcut in the Startup folder: no admin rights, same result at
+logon, minus the automatic restart. The script says which one it installed.
+
+Undo either with the same script:
+
+```bash
+powershell -ExecutionPolicy Bypass -File bridge/install-windows-task.ps1 -Remove
+```
+
+To do the fallback by hand instead, drop a shortcut to `start-bridge.cmd` into
+
+```
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+```
+
+Set the shortcut to run minimised so it does not take the foreground at login.
+
+On macOS and Linux there is no installer; use a launchd agent or a systemd user
+unit pointing at `node bridge/bridge.mjs`.
+
+#### Configuration
 
 First run writes `bridge/config.json` with a generated token and prints
 everything the device needs:
