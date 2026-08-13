@@ -5,6 +5,8 @@ ESP32-S3-Touch-LCD-1.54**. Four swipeable screens on a 240×240 IPS panel: the
 real 5-hour and weekly limit bars, API-equivalent value, tokens by model, and
 device status. Dark only, Anthropic palette, Claude Code's mascot on the glass.
 
+![photo-ia-examplo](./photo.png)
+
 ```
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
 │ ▟▙ PLAN        ● │  │ ▟▙ API VALUE   ● │  │ ▟▙ TOKENS      ● │  │ ▟▙ SYSTEM      ● │
