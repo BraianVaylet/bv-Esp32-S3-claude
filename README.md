@@ -7,26 +7,6 @@ device status. Dark only, Anthropic palette, Claude Code's mascot on the glass.
 
 ![photo-ia-examplo](./photo.png)
 
-```
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ ▟▙ PLAN        ● │  │ ▟▙ API VALUE   ● │  │ ▟▙ TOKENS      ● │  │ ▟▙ SYSTEM      ● │
-│      ▟▀▀▀▙       │  │ TODAY     MONTH  │  │ INPUT   OUTPUT   │  │ WI-FI    casa    │
-│     ▐█ ▀ █▌      │  │ $42.65   $213    │  │ 3.1k    99.4k    │  │ IP    10.0.0.42  │
-│      ▝▘ ▝▘       │  │ $42.65 this ses. │  │ CACHE R CACHE W  │  │ BRIDGE  ok 3s    │
-│  PRO PLAN LIMITS │  │ API LIST PRICES  │  │ 4.1M    152k     │  │ BATTERY 88% USB  │
-│ 5-hour limit 34% │  │ NOT BILLED ON PRO│  │ BY MODEL         │  │ UPTIME  2h 11m   │
-│ ███████░░░░░░░░░ │  │  ▁ ▃ █ ▁ ▂ ▁ ▅   │  │ ▓▓▓▓▓ Opus 5     │  │                  │
-│ resets in 2h 35m │  │  Sa Su Mo Tu We  │  │ ▓▓ Sonnet 5      │  │                  │
-│ Weekly, all  23% │  │                  │  │                  │  │                  │
-│ █████░░░░░░░░░░░ │  │                  │  │                  │  │                  │
-│    ● ○ ○ ○       │  │    ○ ● ○ ○       │  │    ○ ○ ● ○       │  │    ○ ○ ○ ●       │
-└──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────────┘
-```
-
-The mockup above is illustrative; these are the real thing, pulled straight off
-a running device with [`GET /screenshot.bmp`](#screenshots) — no camera, no
-staging:
-
 | PLAN | API VALUE | TOKENS | SYSTEM |
 | --- | --- | --- | --- |
 | ![PLAN screen](assets/screenshots/plan.png) | ![API VALUE screen](assets/screenshots/api-value.png) | ![TOKENS screen](assets/screenshots/tokens.png) | ![SYSTEM screen](assets/screenshots/system.png) |
