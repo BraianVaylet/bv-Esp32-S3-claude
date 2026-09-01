@@ -7,6 +7,7 @@
 #include "board_config.h"
 #include "net.h"
 #include "settings.h"
+#include "ui.h"
 
 static NetState   s_state = NetState::Boot;
 static WebServer  s_http(80);
@@ -220,6 +221,24 @@ static void write_u32(uint8_t *p, uint32_t v)
     p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF;
 }
 
+// Jumps to a tile so it can be screenshotted from a PC without standing at
+// the device: GET /goto?tile=0..3, then GET /screenshot.bmp once rendered.
+static void handle_goto()
+{
+    if (!s_http.hasArg("tile")) {
+        s_http.send(400, "text/plain", "missing ?tile=0..3");
+        return;
+    }
+    const int tile = s_http.arg("tile").toInt();
+    if (tile < 0 || tile > 3) {
+        s_http.send(400, "text/plain", "tile must be 0..3");
+        return;
+    }
+    ui_goto_screen(tile);
+    lv_timer_handler();  // paint this tile now, before the response returns
+    s_http.send(200, "text/plain", "ok");
+}
+
 static void handle_screenshot()
 {
     lv_obj_t *scr = lv_screen_active();
@@ -278,6 +297,7 @@ static void start_http()
     s_http.on("/save", HTTP_POST, handle_save);
     s_http.on("/forget", HTTP_POST, handle_forget);
     s_http.on("/screenshot.bmp", handle_screenshot);
+    s_http.on("/goto", handle_goto);
     s_http.onNotFound(handle_root);  // captive-portal catch-all
     s_http.begin();
     s_httpUp = true;
