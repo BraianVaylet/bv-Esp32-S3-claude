@@ -654,6 +654,14 @@ void ui_next_screen()
     sync_chrome();
 }
 
+void ui_goto_screen(int index)
+{
+    if (!splash_done || !tileview) return;
+    if (index < 0 || index >= TILE_COUNT) return;
+    lv_tileview_set_tile_by_index(tileview, index, 0, LV_ANIM_OFF);
+    sync_chrome();
+}
+
 void ui_show_toast(const char *msg)
 {
     if (!toast) return;

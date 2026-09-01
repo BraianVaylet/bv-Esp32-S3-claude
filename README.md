@@ -23,6 +23,14 @@ device status. Dark only, Anthropic palette, Claude Code's mascot on the glass.
 └──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
+The mockup above is illustrative; these are the real thing, pulled straight off
+a running device with [`GET /screenshot.bmp`](#screenshots) — no camera, no
+staging:
+
+| PLAN | API VALUE | TOKENS | SYSTEM |
+| --- | --- | --- | --- |
+| ![PLAN screen](assets/screenshots/plan.png) | ![API VALUE screen](assets/screenshots/api-value.png) | ![TOKENS screen](assets/screenshots/tokens.png) | ![SYSTEM screen](assets/screenshots/system.png) |
+
 The PLAN screen mirrors the layout of Claude's own usage panel — label,
 percentage, full-width bar, reset countdown — so the two read the same way.
 
