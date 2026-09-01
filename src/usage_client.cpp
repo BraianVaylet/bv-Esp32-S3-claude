@@ -86,8 +86,13 @@ static bool parse_payload(const String &body, UsageSnapshot &out)
 
     out.localMinutes = doc["clock"]["localMinutes"] | 0;
 
-    out.ok       = true;
-    out.error[0] = 0;
+    // `error` is not touched here. It already starts zeroed (see the default
+    // member initializer in UsageSnapshot), and if limitsOk was false above it
+    // now holds the bridge's diagnostic — e.g. "refresh failed (HTTP 400)".
+    // Clobbering it here used to replace that message with the UI's generic
+    // "no limit data" fallback on every successful poll, which is exactly the
+    // case where there was something worth showing.
+    out.ok = true;
     return true;
 }
 
