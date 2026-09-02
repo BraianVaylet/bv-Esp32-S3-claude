@@ -91,6 +91,7 @@ public:
 
 static LGFX_WS154 tft;
 static uint8_t s_brightness = 255;
+static uint8_t s_rotation   = 0;
 
 // ------------------------------------------------------------- LVGL glue ----
 
@@ -161,3 +162,17 @@ void display_set_brightness(uint8_t level)
 }
 
 uint8_t display_get_brightness() { return s_brightness; }
+
+void display_set_rotation(uint8_t rotation)
+{
+    rotation &= 3;
+    if (rotation == s_rotation) return;
+    s_rotation = rotation;
+    tft.setRotation(rotation);
+
+    // The panel now interprets its existing contents under a different scan
+    // order, so what is on the glass is stale until everything is redrawn.
+    if (lv_display_get_default()) lv_obj_invalidate(lv_screen_active());
+}
+
+uint8_t display_get_rotation() { return s_rotation; }

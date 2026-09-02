@@ -6,6 +6,9 @@
 #include "app_config.h"
 #include "board_config.h"
 #include "net.h"
+#include "autorotate.h"
+#include "display.h"
+#include "imu.h"
 #include "settings.h"
 #include "ui.h"
 
@@ -132,6 +135,23 @@ static void handle_root()
             esc(g_settings.bridgeToken) + "\">";
     html += "<p class=hint>Printed by the bridge on first start.</p>";
 
+    html += "<label>Screen orientation</label><select name=rot>";
+    {
+        static const char *ROT_LABELS[5] = {
+            "Follow the device (IMU)", "Fixed 0&deg;", "Fixed 90&deg;",
+            "Fixed 180&deg;", "Fixed 270&deg;"
+        };
+        for (int i = 0; i < 5; i++) {
+            html += String("<option value=") + i +
+                    (g_settings.rotation == i ? " selected" : "") + ">" +
+                    ROT_LABELS[i] + "</option>";
+        }
+    }
+    html += "</select>";
+    html += "<p class=hint>Following the device needs it standing, not lying flat - "
+            "gravity cannot tell orientation through the screen, so lying flat "
+            "holds the last orientation.</p>";
+
     html += "<label>Spoken alerts</label><select name=alerts>";
     html += String("<option value=1") + (g_settings.alerts ? " selected" : "") + ">On</option>";
     html += String("<option value=0") + (g_settings.alerts ? "" : " selected") + ">Off</option>";
@@ -188,6 +208,8 @@ static void handle_save()
     if (s_http.hasArg("port"))  g_settings.bridgePort  = s_http.arg("port").toInt();
     if (s_http.hasArg("poll"))
         g_settings.pollMs = max(5000UL, (unsigned long)s_http.arg("poll").toInt() * 1000UL);
+    if (s_http.hasArg("rot"))
+        g_settings.rotation = (uint8_t)constrain(s_http.arg("rot").toInt(), 0, 4);
     if (s_http.hasArg("alerts")) g_settings.alerts = s_http.arg("alerts").toInt() != 0;
     if (s_http.hasArg("vol"))
         g_settings.volume = (uint8_t)constrain(s_http.arg("vol").toInt(), 0, 100);
@@ -219,6 +241,50 @@ static void write_u16(uint8_t *p, uint16_t v) { p[0] = v & 0xFF; p[1] = (v >> 8)
 static void write_u32(uint8_t *p, uint32_t v)
 {
     p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF;
+}
+
+// Raw accelerometer reading plus the rotation currently applied, so the
+// mapping from IMU axes to screen orientation can be derived from real
+// measurements instead of guessed. Guessing this board's button GPIOs cost
+// real time earlier; the axis mapping is the same kind of unknown.
+static void handle_imu()
+{
+    float ax = 0, ay = 0, az = 0;
+    const bool ok = imu_read(&ax, &ay, &az);
+
+    const float angle = atan2f(ay, ax) * 180.0f / (float)M_PI;
+
+    char body[224];
+    snprintf(body, sizeof(body),
+             "{\"ok\":%s,\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,"
+             "\"angle\":%.1f,\"flat\":%s,\"orientation\":%u,\"rotation\":%u}\n",
+             ok ? "true" : "false", ax, ay, az, angle,
+             autorotate_is_flat() ? "true" : "false",
+             autorotate_current(), display_get_rotation());
+    s_http.send(200, "application/json", body);
+}
+
+// GET /rotate?r=0..3 applies a panel rotation immediately. Which value puts
+// the UI upright for a given physical orientation is a property of the panel
+// wiring, not something to infer from a datasheet - this makes it one request
+// to find out.
+static void handle_rotate()
+{
+    if (!s_http.hasArg("r")) {
+        s_http.send(400, "text/plain", "missing ?r=0..3");
+        return;
+    }
+    const int r = s_http.arg("r").toInt();
+    if (r < 0 || r > 3) {
+        s_http.send(400, "text/plain", "r must be 0..3");
+        return;
+    }
+    display_set_rotation((uint8_t)r);
+    lv_timer_handler();
+
+    char body[48];
+    snprintf(body, sizeof(body), "rotation=%d\n", r);
+    s_http.send(200, "text/plain", body);
 }
 
 // Jumps to a tile so it can be screenshotted from a PC without standing at
@@ -298,6 +364,8 @@ static void start_http()
     s_http.on("/forget", HTTP_POST, handle_forget);
     s_http.on("/screenshot.bmp", handle_screenshot);
     s_http.on("/goto", handle_goto);
+    s_http.on("/imu", handle_imu);
+    s_http.on("/rotate", handle_rotate);
     s_http.onNotFound(handle_root);  // captive-portal catch-all
     s_http.begin();
     s_httpUp = true;
