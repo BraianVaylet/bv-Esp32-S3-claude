@@ -258,6 +258,62 @@ visit — the SYSTEM screen shows the address. A **Forget Wi-Fi** button at the
 bottom of that page wipes the credentials and restarts into the setup AP; it is
 only needed when the network itself changes.
 
+### Screen orientation
+
+The panel is square, so the UI works at any rotation with no layout changes —
+LVGL keeps rendering into the same 240×240 space and the panel controller does
+the turning in hardware (MADCTL), costing no CPU and no extra buffer.
+LovyanGFX transforms touch coordinates to match, so input stays aligned.
+
+By default the screen **follows the device**: the QMI8658 accelerometer is
+sampled at 5 Hz and the UI turns to stay upright. That is what makes the USB-C
+port's position a matter of preference rather than a constraint — stand the
+device with the port wherever the cable reaches, and the screen adapts.
+
+Set a fixed rotation instead from the settings page if you prefer.
+
+Two things worth knowing about the automatic mode:
+
+**It needs the device standing, not lying flat.** Gravity is what indicates
+orientation, and a device lying face-up has gravity pointing through the
+screen, where it says nothing about which edge is down. Below 0.35 g in the
+screen plane the last orientation is simply held rather than letting noise
+pick one.
+
+**It waits before turning.** A new orientation has to hold for four
+consecutive samples — about 800 ms — so picking the device up and setting it
+down does not flicker the UI through two or three orientations on the way.
+
+```
+GET /imu       accelerometer, derived angle, chosen orientation, flat flag
+GET /rotate?r= 0..3, applies a rotation immediately (ignored while automatic
+               mode is driving it, which will correct it on the next sample)
+```
+
+#### Calibrating it
+
+The mapping from gravity angle to panel rotation is a property of how the IMU
+and the panel are mounted, so it was solved from measurements rather than
+derived. Two readings, each taken with the accelerometer sampled at the moment
+the rotation was confirmed upright by eye:
+
+```
+atan2(ay, ax) ≈  7°  ->  panel rotation 3
+atan2(ay, ax) ≈ 80°  ->  panel rotation 0
+```
+
+giving `REF_ROTATION = 1` and `DIR = -1` in `src/autorotate.cpp`.
+
+Two readings are the minimum, and **they have to be a quarter turn apart**. A
+pair half a turn apart cannot determine the direction at all: the step is ±2,
+and `+2` and `-2` are the same value mod 4, so both signs predict the same
+rotation. The mapping then looks confirmed while still being wrong at the
+other two orientations — which is exactly how this was first mis-calibrated.
+
+Note that **a screenshot cannot verify any of this**. `/screenshot.bmp` comes
+from LVGL's snapshot of the *logical* screen, which renders upright at every
+panel rotation. Rotation is only visible on the actual glass.
+
 ### Screenshots
 
 ```

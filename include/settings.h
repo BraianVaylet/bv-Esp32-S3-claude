@@ -10,6 +10,9 @@ struct Settings {
     uint32_t pollMs;
     uint8_t  brightness;
 
+    // Screen orientation: 0 = follow the IMU, 1..4 = fixed rotation 0..3
+    uint8_t  rotation;
+
     // Spoken alerts
     bool     alerts;      // master switch
     uint8_t  volume;      // 0..100

@@ -3,9 +3,11 @@
 
 #include "app_config.h"
 #include "audio.h"
+#include "autorotate.h"
 #include "board.h"
 #include "board_config.h"
 #include "display.h"
+#include "imu.h"
 #include "net.h"
 #include "settings.h"
 #include "theme.h"
@@ -77,7 +79,12 @@ void setup()
     }
     display_set_brightness(g_settings.brightness);
 
+    // After display_begin(): the IMU rides on the I2C port LovyanGFX opens
+    // for the touch controller.
+    imu_begin();
+
     ui_begin();
+    autorotate_apply_setting();
     net_begin();
     usage_client_begin();
 
@@ -88,6 +95,7 @@ void loop()
 {
     lv_timer_handler();
     net_loop();
+    autorotate_tick();
     handle_buttons();
 
     const uint32_t now = millis();
